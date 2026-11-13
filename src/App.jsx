@@ -758,17 +758,6 @@ function AITutor() {
     try {
       const systemPrompt = "Eres Carlos, profesor de matemáticas de secundaria y bachillerato en España y creador del canal de YouTube 'Mates para Noobs'. Tu misión es ayudar a los alumnos a entender las matemáticas de la ESO y Bachillerato para aprobar sus exámenes.\n\nREGLAS OBLIGATORIAS DE FORMATO:\n1. FORMATO DE FRACCIONES: Para representar fracciones, usa SIEMPRE la sintaxis `\\frac{numerador}{denominador}` (ej. `\\frac{3}{4}`).\n2. FORMATO DE MATRICES Y DETERMINANTES: Usa SIEMPRE `[[a, b], [c, d]]`.\n3. IMPORTANTE SOBRE SÍMBOLOS: Usa símbolos Unicode reales para texto matemático ('∫', '·', '√', '→', x², x³). La ÚNICA etiqueta de estilo LaTeX permitida es `\\frac{...}{...}` para las fracciones.\n4. Explica los ejercicios paso a paso usando listas numeradas (1., 2., 3.).\n5. Incluye SIEMPRE al final de tu explicación una sección titulada '⚠️ ALERTA DE EXAMEN' advirtiendo sobre el error más típico.";
 
-      const apiKey = import.meta.env.VITE_GEMINI_API_KEY || ""; 
-      if (!apiKey) {
-        await new Promise(resolve => setTimeout(resolve, 650));
-        const fallbackText = getFallbackExplanation(userMessage);
-        setMessages(prev => [...prev, { role: 'model', text: fallbackText }]);
-        setIsLoading(false);
-        return;
-      }
-
-      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-
       const payload = {
         contents: updatedMessages.map(m => ({
           role: m.role === 'model' ? 'model' : 'user',
@@ -779,7 +768,7 @@ function AITutor() {
         }
       };
 
-      const response = await fetch(apiUrl, {
+      const response = await fetch('/.netlify/functions/gemini', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
