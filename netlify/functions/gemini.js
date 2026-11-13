@@ -5,6 +5,7 @@ export const handler = async (event) => {
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
+    console.error("ERROR: Falta GEMINI_API_KEY en process.env");
     return {
       statusCode: 500,
       body: JSON.stringify({ error: "Falta GEMINI_API_KEY en Netlify" }),
@@ -22,12 +23,17 @@ export const handler = async (event) => {
     });
 
     const data = await response.json();
+    if (!response.ok) {
+      console.error("ERROR API GEMINI:", JSON.stringify(data));
+    }
+
     return {
       statusCode: response.status,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     };
   } catch (error) {
+    console.error("ERROR CATCH:", error.message);
     return {
       statusCode: 500,
       body: JSON.stringify({ error: error.message }),
