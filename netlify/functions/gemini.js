@@ -13,48 +13,38 @@ export const handler = async (event) => {
 
   try {
     const payload = JSON.parse(event.body);
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${apiKey}`;
 
-    // Pedimos respuestas concisas y rápidas para que tarden 2-3 segundos (muy por debajo del límite de 10s de Netlify)
     const fastPayload = {
       ...payload,
       generationConfig: {
         temperature: 0.3,
         maxOutputTokens: 700,
-        thinkingConfig: { thinkingBudget: 0 }
+        thinkingConfig: { thinkingLevel: "LOW" }
       }
     };
 
-    const models = ["gemini-3.8-flash", "gemini-3.8-flash-lite"];
-    let lastError = null;
+    const response = await fetch(apiUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(fastPayload),
+    });
 
-    for (const model of models) {
-      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+    const data = await response.json();
 
-      const response = await fetch(apiUrl, {
-        method: "POST",
+    if (!response.ok) {
+      console.error("ERROR API GEMINI:", JSON.stringify(data));
+      return {
+        statusCode: response.status,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(fastPayload),
-      });
-
-      const data = await response.json();
-
-      if (response.ok) {
-        return {
-          statusCode: 200,
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(data),
-        };
-      }
-
-      lastError = data;
-      console.warn(`Aviso con ${model} (${response.status}):`, JSON.stringify(data));
+        body: JSON.stringify(data),
+      };
     }
 
-    console.error("ERROR FINAL API GEMINI:", JSON.stringify(lastError));
     return {
-      statusCode: 503,
+      statusCode: 200,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(lastError),
+      body: JSON.stringify(data),
     };
   } catch (error) {
     console.error("ERROR CATCH:", error.message);
