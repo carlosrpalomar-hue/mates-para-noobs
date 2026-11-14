@@ -5,7 +5,6 @@ export const handler = async (event) => {
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    console.error("ERROR: Falta GEMINI_API_KEY en process.env");
     return {
       statusCode: 500,
       body: JSON.stringify({ error: "Falta GEMINI_API_KEY en Netlify" }),
@@ -14,35 +13,50 @@ export const handler = async (event) => {
 
   try {
     const payload = JSON.parse(event.body);
-    // Lista de modelos por orden de prioridad por si alguno tiene saturación puntual (503)
-    const models = ["gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.0-flash"];
+    // Añadimos configuración para respuesta rápida sin que agote el límite de 10s de Netlify
+    const fastPayload = {
+      ...payload,
+      generationConfig: {
+        temperature: 0.4,
+        thinkingConfig: { thinkingBudget: 0 }
+      }
+    };
+
+    const models = ["gemini-3.8-flash", "gemini-2.5-flash", "gemini-flash-latest"];
     let lastError = null;
 
     for (const model of models) {
       const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      
+      // Si un modelo tarda más de 6 segundos, cortamos y saltamos al siguiente antes de que Netlify corte la función
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 6000);
 
-      const response = await fetch(apiUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      const data = await response.json();
-
-      if (response.ok) {
-        return {
-          statusCode: 200,
+      try {
+        const response = await fetch(apiUrl, {
+          method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(data),
-        };
-      }
+          body: JSON.stringify(fastPayload),
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
 
-      lastError = data;
-      console.warn(`Aviso con modelo ${model} (${response.status}):`, JSON.stringify(data));
+        const data = await response.json();
 
-      // Si el error NO es saturación (503/429) ni modelo no encontrado (404), salimos del bucle
-      if (![503, 429, 404].includes(response.status)) {
-        break;
+        if (response.ok) {
+          return {
+            statusCode: 200,
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(data),
+          };
+        }
+
+        lastError = data;
+        console.warn(`Aviso con ${model} (${response.status}):`, JSON.stringify(data));
+      } catch (err) {
+        clearTimeout(timeoutId);
+        console.warn(`Timeout o error de red con ${model}:`, err.message);
+        lastError = { error: { message: err.message } };
       }
     }
 
@@ -53,7 +67,6 @@ export const handler = async (event) => {
       body: JSON.stringify(lastError),
     };
   } catch (error) {
-    console.error("ERROR CATCH:", error.message);
     return {
       statusCode: 500,
       body: JSON.stringify({ error: error.message }),
