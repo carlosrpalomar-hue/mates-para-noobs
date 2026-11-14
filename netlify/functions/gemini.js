@@ -59,44 +59,45 @@ export const handler = async (event) => {
 
   try {
     const payload = JSON.parse(event.body);
+    const tried = new Set();
 
-    // 1. Primer intento: gemini-3.8-flash con 12s de margen
-    const primary = await tryGenerate("models/gemini-3.8-flash", payload, true, 12000);
+    // 1. Primer intento rápido con gemini-3.8-flash (8s máx)
+    tried.add("models/gemini-3.8-flash");
+    const primary = await tryGenerate("models/gemini-3.8-flash", payload, true, 8000);
     if (primary.ok) {
       return { statusCode: 200, headers: { "Content-Type": "application/json" }, body: JSON.stringify(primary.data) };
     }
     console.warn(`Aviso gemini-3.8-flash (${primary.status}):`, JSON.stringify(primary.data));
 
-    // 2. Segundo intento: gemini-flash-latest (válido en tu cuenta) con 12s de margen
-    const secondary = await tryGenerate("models/gemini-flash-latest", payload, false, 12000);
-    if (secondary.ok) {
-      return { statusCode: 200, headers: { "Content-Type": "application/json" }, body: JSON.stringify(secondary.data) };
-    }
-    console.warn(`Aviso gemini-flash-latest (${secondary.status}):`, JSON.stringify(secondary.data));
-
-    // 3. Tercer intento: busca automáticamente un modelo disponible en tu cuenta
+    // 2. Si falla o está saturado (503), consultamos los modelos reales disponibles en tu clave
     const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
     if (listRes.ok) {
       const listData = await listRes.json();
-      const validModels = (listData.models || []).filter((m) =>
-        m.supportedGenerationMethods?.includes("generateContent") &&
-        !["models/gemini-3.8-flash", "models/gemini-flash-latest"].includes(m.name) &&
-        !/embedding|imagen|veo|tts|robotics|deep-research|computer-use/i.test(m.name)
-      );
-      validModels.sort((a, b) => (/flash|lite/i.test(a.name) ? -1 : 1));
+      const available = (listData.models || [])
+        .filter((m) =>
+          m.supportedGenerationMethods?.includes("generateContent") &&
+          !tried.has(m.name) &&
+          !/embedding|imagen|veo|tts|robotics|deep-research|computer-use|aqa|bisect/i.test(m.name)
+        )
+        .map((m) => m.name);
 
-      if (validModels.length > 0) {
-        const dynamicRes = await tryGenerate(validModels[0].name, payload, false, 5000);
-        if (dynamicRes.ok) {
-          return { statusCode: 200, headers: { "Content-Type": "application/json" }, body: JSON.stringify(dynamicRes.data) };
+      console.log("Modelos alternativos en tu cuenta:", available.join(", "));
+
+      // Probamos hasta 4 modelos alternativos (6s máx cada uno) hasta que uno responda OK
+      for (const modelName of available.slice(0, 4)) {
+        const res = await tryGenerate(modelName, payload, false, 6000);
+        if (res.ok) {
+          console.log(`Respuesta exitosa usando ${modelName}`);
+          return { statusCode: 200, headers: { "Content-Type": "application/json" }, body: JSON.stringify(res.data) };
         }
+        console.warn(`Aviso con ${modelName} (${res.status}):`, JSON.stringify(res.data));
       }
     }
 
     return {
       statusCode: 503,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(secondary.data || primary.data),
+      body: JSON.stringify(primary.data),
     };
   } catch (error) {
     console.error("ERROR CATCH:", error.message);
